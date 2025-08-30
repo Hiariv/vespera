@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vespera - Yazarın Dünyası</title>
+    <link rel="icon" type="image/png" href="https://hizliresim.com/cauvhjv" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .book-card-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        .book-card-image {
+            height: 250px;
+            object-fit: cover;
+            width: 100%;
+        }
+        .light-mode {
+            background-color: #f9fafb;
+            color: #111827;
+        }
+        .light-mode .bg-white { background-color: #ffffff; }
+        .light-mode .text-gray-900 { color: #111827; }
+        .light-mode .text-gray-800 { color: #1f2937; }
+        .light-mode .text-gray-700 { color: #374151; }
+        .light-mode .text-gray-600 { color: #4b5563; }
+        .light-mode .border-gray-200 { border-color: #e5e7eb; }
+        .light-mode .bg-gray-100 { background-color: #f3f4f6; }
+        .light-mode .bg-gray-50 { background-color: #f9fafb; }
+        .light-mode .ring-offset-white { --tw-ring-offset-color: #ffffff; }
+        .light-mode .shadow-lg { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
+
+        .dark-mode {
+            background-color: #1a202c;
+            color: #cbd5e0;
+        }
+        .dark-mode .bg-white { background-color: #2d3748; }
+        .dark-mode .bg-gray-50 { background-color: #1a202c; }
+        .dark-mode .bg-gray-100 { background-color: #4a5568; }
+        .dark-mode .text-gray-900 { color: #e2e8f0; }
+        .dark-mode .text-gray-800 { color: #e2e8f0; }
+        .dark-mode .text-gray-700 { color: #a0aec0; }
+        .dark-mode .text-gray-600 { color: #718096; }
+        .dark-mode .border-gray-200 { border-color: #4a5568; }
+        .dark-mode .text-purple-600 { color: #9f7aea; }
+        .dark-mode .hover\:text-purple-600:hover { color: #b794f4; }
+        .dark-mode .hover\:bg-purple-700:hover { background-color: #805ad5; }
+        .dark-mode .bg-purple-600 { background-color: #805ad5; }
+        .dark-mode .ring-offset-white { --tw-ring-offset-color: #1a202c; }
+        .dark-mode .bg-blue-100 { background-color: #434190; }
+        .dark-mode .bg-gray-100 { background-color: #2f343d; }
+        .dark-mode .bg-gray-50 { background-color: #1d222b; }
+    </style>
+</head>
+<body class="light-mode transition-colors duration-300">
+
+    <!-- Firebase CDN Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, orderBy, serverTimestamp, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
+        
+        // Firestore için global değişkenler
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // Firestore ve Auth servislerini başlat
+        window.app = initializeApp(firebaseConfig);
+        window.db = getFirestore(window.app);
+        window.auth = getAuth(window.app);
+        window.AUTHOR_UID = 'vespera-author-id-123'; // Yazarın UID'si için yer tutucu
+
+        // Yetkilendirme durumunu dinle
+        onAuthStateChanged(window.auth, async (user) => {
+            if (user) {
+                window.userId = user.uid;
+                document.getElementById('profile-info').style.display = 'flex';
+                document.getElementById('login-btn').style.display = 'none';
+                document.getElementById('vespera-nav-link').style.display = 'block';
+                await loadUserProfile(window.userId);
+            } else {
+                window.userId = null;
+                document.getElementById('profile-info').style.display = 'none';
+                document.getElementById('login-btn').style.display = 'block';
+                document.getElementById('vespera-nav-link').style.display = 'none';
+                console.log("Kullanıcı çıkış yaptı veya giriş yapmadı.");
+            }
+        });
+        
+        // Kimlik doğrulama işlemini başlat
+        if (initialAuthToken) {
+            signInWithCustomToken(window.auth, initialAuthToken).catch(error => {
+                console.error("Özel kimlik doğrulama tokeni ile giriş yapılamadı, anonim olarak deneniyor.", error);
+                signInAnonymously(window.auth);
+            });
+        } else {
+            signInAnonymously(window.auth);
+        }
+
+        // Profil bilgilerini yükle veya oluştur
+        window.loadUserProfile = async (userId) => {
+            const userDocRef = doc(window.db, `artifacts/${appId}/public/data/users`, userId);
+            const userDocSnap = await getDoc(userDocRef);
+            if (userDocSnap.exists()) {
+                const userData = userDocSnap.data();
+                document.getElementById('profile-name').innerText = userData.name || 'Misafir';
+                document.getElementById('profile-pic').src = userData.profilePicUrl || 'https://placehold.co/40x40/d1d5db/374151?text=U';
+                window.userName = userData.name;
+                window.userProfilePic = userData.profilePicUrl;
+            } else {
+                // Yeni kullanıcı için anonim profil oluştur
+                const defaultProfile = {
+                    name: `Misafir-${userId.substring(0, 4)}`,
+                    email: window.auth.currentUser.email || '',
+                    profilePicUrl: 'https://placehold.co/40x40/d1d5db/374151?text=U',
+                    createdAt: serverTimestamp()
+                };
+                await setDoc(userDocRef, defaultProfile);
+                document.getElementById('profile-name').innerText = defaultProfile.name;
+                document.getElementById('profile-pic').src = defaultProfile.profilePicUrl;
+                window.userName = defaultProfile.name;
+                window.userProfilePic = defaultProfile.profilePicUrl;
+            }
+        };
+
+        // UI elemanlarını kontrol etme
+        window.showPage = (pageId, bookId = null) => {
+            document.querySelectorAll('.page-section').forEach(section => {
+                section.style.display = 'none';
+            });
+            document.getElementById(pageId).style.display = 'block';
+            if (pageId === 'books-page') {
+                document.getElementById('book-title-header').innerText = 'Kitaplarım';
+                document.getElementById('books-container').style.display = 'grid';
+                document.getElementById('book-content-container').style.display = 'none';
+            } else if (bookId) {
+                document.getElementById('book-content-container').style.display = 'block';
+                document.getElementById('books-container').style.display = 'none';
+                loadBookContent(bookId);
+            }
+        };
+
+        // Kitap içeriğini yükle
+        window.loadBookContent = (bookId) => {
+            const content = document.getElementById(`content-${bookId}`);
+            document.getElementById('book-content-container').innerHTML = content.innerHTML;
+        };
+
+        // Modalı açma/kapama
+        window.openModal = (modalId) => {
+            document.getElementById(modalId).style.display = 'flex';
+        };
+        window.closeModal = (modalId) => {
+            document.getElementById(modalId).style.display = 'none';
+        };
+
+        // Yorumları yükle (anasayfa için)
+        window.loadComments = () => {
+            const commentsContainer = document.getElementById('comments-container');
+            const q = collection(window.db, `artifacts/${appId}/public/data/comments`);
+            onSnapshot(q, (querySnapshot) => {
+                let comments = [];
+                querySnapshot.forEach((doc) => {
+                    comments.push({ id: doc.id, ...doc.data() });
+                });
+                comments.sort((a, b) => b.timestamp - a.timestamp);
+                commentsContainer.innerHTML = '';
+                comments.forEach(comment => {
+                    const commentEl = document.createElement('div');
+                    commentEl.className = 'flex items-start space-x-4 p-4 border-b last:border-b-0 border-gray-200';
+                    commentEl.innerHTML = `
+                        <img src="${comment.userProfilePic || 'https://placehold.co/40x40/d1d5db/374151?text=U'}" alt="Profil Resmi" class="w-10 h-10 rounded-full object-cover">
+                        <div class="flex-1">
+                            <p class="font-bold text-lg">${comment.userName || 'İsimsiz'}</p>
+                            <p class="text-sm text-gray-600 mb-2">${comment.timestamp ? new Date(comment.timestamp.toDate()).toLocaleString('tr-TR') : 'Şimdi'}</p>
+                            <p class="text-gray-800">${comment.text}</p>
+                        </div>
+                    `;
+                    commentsContainer.appendChild(commentEl);
+                });
+            });
+        };
+
+        // Duyuruları yükle
+        window.loadAnnouncements = () => {
+            const announcementsContainer = document.getElementById('announcements-container');
+            const q = collection(window.db, `artifacts/${appId}/public/data/announcements`);
+            onSnapshot(q, (querySnapshot) => {
+                let announcements = [];
+                querySnapshot.forEach((doc) => {
+                    announcements.push({ id: doc.id, ...doc.data() });
+                });
+                announcements.sort((a, b) => b.timestamp - a.timestamp);
+                announcementsContainer.innerHTML = '';
+                announcements.forEach(announcement => {
+                    const announcementEl = document.createElement('div');
+                    announcementEl.className = 'flex items-start space-x-4 p-4 border-b last:border-b-0 border-gray-200';
+                    announcementEl.innerHTML = `
+                        <img src="${announcement.authorProfilePic || 'https://placehold.co/40x40/d1d5db/374151?text=Y'}" alt="Yazar Profil Resmi" class="w-10 h-10 rounded-full object-cover ring-2 ring-purple-500 ring-offset-2 ring-offset-gray-50">
+                        <div class="flex-1">
+                            <p class="font-bold text-lg">${announcement.authorName || 'Yazar'}</p>
+                            <p class="text-sm text-gray-600 mb-2">${announcement.timestamp ? new Date(announcement.timestamp.toDate()).toLocaleString('tr-TR') : 'Şimdi'}</p>
+                            <p class="text-gray-800">${announcement.text}</p>
+                        </div>
+                    `;
+                    announcementsContainer.appendChild(announcementEl);
+                });
+            });
+        };
+
+        // YB planlarını yükle
+        window.loadChapterPlans = (bookId) => {
+            const plansContainer = document.getElementById('chapter-plans-container');
+            plansContainer.innerHTML = '';
+            const q = collection(window.db, `artifacts/${appId}/public/data/chapter-plans-${bookId}`);
+            onSnapshot(q, (querySnapshot) => {
+                let plans = [];
+                querySnapshot.forEach((doc) => {
+                    plans.push({ id: doc.id, ...doc.data() });
+                });
+                plans.sort((a, b) => b.timestamp - a.timestamp);
+                plansContainer.innerHTML = '';
+                plans.forEach(plan => {
+                    const planEl = document.createElement('div');
+                    planEl.className = 'flex items-start space-x-4 p-4 border-b last:border-b-0 border-gray-200';
+                    planEl.innerHTML = `
+                        <img src="${plan.authorProfilePic || 'https://placehold.co/40x40/d1d5db/374151?text=Y'}" alt="Yazar Profil Resmi" class="w-10 h-10 rounded-full object-cover ring-2 ring-purple-500 ring-offset-2 ring-offset-gray-50">
+                        <div class="flex-1">
+                            <p class="font-bold text-lg">${plan.authorName || 'Yazar'}</p>
+                            <p class="text-sm text-gray-600 mb-2">${plan.timestamp ? new Date(plan.timestamp.toDate()).toLocaleString('tr-TR') : 'Şimdi'}</p>
+                            <p class="text-gray-800">${plan.text}</p>
+                        </div>
+                    `;
+                    plansContainer.appendChild(planEl);
+                });
+            });
+        };
+        
+        window.currentChatBookId = null;
+        window.loadChatMessages = (bookId) => {
+            window.currentChatBookId = bookId;
+            const chatMessagesContainer = document.getElementById('chat-messages-container');
+            const chatTitle = document.getElementById('chat-title');
+            chatTitle.innerText = `${bookId.toUpperCase()} Sohbet Grubu`;
+            chatMessagesContainer.innerHTML = '<div class="text-center text-gray-500 p-4">Yükleniyor...</div>';
+            
+            const q = collection(window.db, `artifacts/${appId}/public/data/chats/${bookId}/messages`);
+            onSnapshot(q, (querySnapshot) => {
+                let messages = [];
+                querySnapshot.forEach((doc) => {
+                    messages.push({ id: doc.id, ...doc.data() });
+                });
+                messages.sort((a, b) => a.timestamp - b.timestamp);
+                chatMessagesContainer.innerHTML = '';
+                messages.forEach(message => {
+                    const messageEl = document.createElement('div');
+                    const isCurrentUser = message.userId === window.userId;
+                    messageEl.className = `flex items-start space-x-3 p-2 rounded-lg my-2 ${isCurrentUser ? 'self-end bg-blue-100 ml-auto' : 'bg-gray-100'} max-w-[80%]`;
+                    
+                    if (!isCurrentUser) {
+                        messageEl.innerHTML = `
+                            <img src="${message.userProfilePic || 'https://placehold.co/32x32/d1d5db/374151?text=U'}" alt="Profil Resmi" class="w-8 h-8 rounded-full object-cover mt-1">
+                            <div class="flex-1">
+                                <p class="font-bold text-sm text-gray-900">${message.userName || 'Anonim'}</p>
+                                <p class="text-gray-800">${message.text}</p>
+                                <p class="text-xs text-gray-500 text-right">${message.timestamp ? new Date(message.timestamp.toDate()).toLocaleTimeString('tr-TR') : 'Şimdi'}</p>
+                            </div>
+                        `;
+                    } else {
+                        messageEl.innerHTML = `
+                            <div class="flex-1">
+                                <p class="font-bold text-sm text-right text-gray-900">${message.userName || 'Siz'}</p>
+                                <p class="text-gray-800 text-right">${message.text}</p>
+                                <p class="text-xs text-gray-500 text-right">${message.timestamp ? new Date(message.timestamp.toDate()).toLocaleTimeString('tr-TR') : 'Şimdi'}</p>
+                            </div>
+                            <img src="${message.userProfilePic || 'https://placehold.co/32x32/d1d5db/374151?text=U'}" alt="Profil Resmi" class="w-8 h-8 rounded-full object-cover mt-1">
+                        `;
+                    }
+                    chatMessagesContainer.appendChild(messageEl);
+                    chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+                });
+            });
+        };
+
+        // Yorumları yükle (bölüm sonu için)
+        window.loadChapterComments = (bookId) => {
+            const commentsContainer = document.getElementById('chapter-comments-container');
+            commentsContainer.innerHTML = '';
+            const q = collection(window.db, `artifacts/${appId}/public/data/chapter-comments-${bookId}`);
+            onSnapshot(q, (querySnapshot) => {
+                let comments = [];
+                querySnapshot.forEach((doc) => {
+                    comments.push({ id: doc.id, ...doc.data() });
+                });
+                comments.sort((a, b) => b.timestamp - a.timestamp);
+                commentsContainer.innerHTML = '';
+                comments.forEach(comment => {
+                    const commentEl = document.createElement('div');
+                    commentEl.className = 'flex items-start space-x-4 p-4 border-b last:border-b-0 border-gray-200';
+                    commentEl.innerHTML = `
+                        <img src="${comment.userProfilePic || 'https://placehold.co/40x40/d1d5db/374151?text=U'}" alt="Profil Resmi" class="w-10 h-10 rounded-full object-cover">
+                        <div class="flex-1">
+                            <p class="font-bold text-lg">${comment.userName || 'İsimsiz'}</p>
+                            <div class="flex items-center mt-1">
+                                ${Array(comment.rating).fill('<svg class="w-5 h-5 text-purple-500 fill-current" viewBox="0 0 20 20"><path d="M10 15.27L16.18 19l-1.64-7.03L20 7.24l-7.19-.61L10 0 7.19 6.63 0 7.24l5.46 4.73L3.82 19z"/></svg>').join('')}
+                                ${Array(5 - comment.rating).fill('<svg class="w-5 h-5 text-gray-400 fill-current" viewBox="0 0 20 20"><path d="M10 15.27L16.18 19l-1.64-7.03L20 7.24l-7.19-.61L10 0 7.19 6.63 0 7.24l5.46 4.73L3.82 19z"/></svg>').join('')}
+                            </div>
+                            <p class="text-sm text-gray-600 mb-2">${comment.timestamp ? new Date(comment.timestamp.toDate()).toLocaleString('tr-TR') : 'Şimdi'}</p>
+                            <p class="text-gray-800">${comment.text}</p>
+                        </div>
+                    `;
+                    commentsContainer.appendChild(commentEl);
+                });
+            });
+        };
+
+        // DOM yüklendiğinde ana sayfayı göster
+        document.addEventListener('DOMContentLoaded', () => {
+            window.showPage('home-page');
+            document.getElementById('profile-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const newName = document.getElementById('profile-name-input').value;
+                const newPicUrl = document.getElementById('profile-pic-input').value;
+                if (window.userId) {
+                    const userDocRef = doc(window.db, `artifacts/${appId}/public/data/users`, window.userId);
+                    await setDoc(userDocRef, {
+                        name: newName,
+                        profilePicUrl: newPicUrl,
+                        email: window.auth.currentUser.email || ''
+                    }, { merge: true });
+                    window.userName = newName;
+                    window.userProfilePic = newPicUrl;
+                    document.getElementById('profile-name').innerText = newName;
+                    document.getElementById('profile-pic').src = newPicUrl;
+                    closeModal('profile-modal');
+                }
+            });
+
+            document.getElementById('comment-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const commentText = document.getElementById('comment-input').value;
+                if (!commentText.trim() || !window.userId) return;
+
+                await addDoc(collection(window.db, `artifacts/${appId}/public/data/comments`), {
+                    userId: window.userId,
+                    userName: window.userName || 'Anonim',
+                    userProfilePic: window.userProfilePic || 'https://placehold.co/40x40/d1d5db/374151?text=U',
+                    text: commentText,
+                    timestamp: serverTimestamp()
+                });
+                document.getElementById('comment-input').value = '';
+            });
+
+            document.getElementById('announcement-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const announcementText = document.getElementById('announcement-input').value;
+                if (!announcementText.trim() || window.userId !== window.AUTHOR_UID) return;
+                
+                await addDoc(collection(window.db, `artifacts/${appId}/public/data/announcements`), {
+                    authorId: window.userId,
+                    authorName: 'Vespera',
+                    authorProfilePic: 'https://i.hizliresim.com/cauvhjv.jpg',
+                    text: announcementText,
+                    timestamp: serverTimestamp()
+                });
+                document.getElementById('announcement-input').value = '';
+            });
+
+            document.getElementById('yb-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const planText = document.getElementById('yb-input').value;
+                const bookId = document.getElementById('yb-book-select').value;
+                if (!planText.trim() || !bookId || window.userId !== window.AUTHOR_UID) return;
+
+                await addDoc(collection(window.db, `artifacts/${appId}/public/data/chapter-plans-${bookId}`), {
+                    authorId: window.userId,
+                    authorName: 'Vespera',
+                    authorProfilePic: 'https://i.hizliresim.com/cauvhjv.jpg',
+                    text: planText,
+                    timestamp: serverTimestamp()
+                });
+                document.getElementById('yb-input').value = '';
+            });
+
+            document.getElementById('chat-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const messageText = document.getElementById('chat-input').value;
+                if (!messageText.trim() || !window.userId || !window.currentChatBookId) return;
+
+                await addDoc(collection(window.db, `artifacts/${appId}/public/data/chats/${window.currentChatBookId}/messages`), {
+                    userId: window.userId,
+                    userName: window.userName || 'Anonim',
+                    userProfilePic: window.userProfilePic || 'https://placehold.co/32x32/d1d5db/374151?text=U',
+                    text: messageText,
+                    timestamp: serverTimestamp()
+                });
+                document.getElementById('chat-input').value = '';
+            });
+
+            document.getElementById('chapter-comment-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const commentText = document.getElementById('chapter-comment-input').value;
+                const rating = document.querySelector('input[name="rating"]:checked');
+                if (!commentText.trim() || !rating || !window.userId || !window.currentBookId) return;
+
+                await addDoc(collection(window.db, `artifacts/${appId}/public/data/chapter-comments-${window.currentBookId}`), {
+                    userId: window.userId,
+                    userName: window.userName || 'Anonim',
+                    userProfilePic: window.userProfilePic || 'https://placehold.co/40x40/d1d5db/374151?text=U',
+                    text: commentText,
+                    rating: parseInt(rating.value),
+                    timestamp: serverTimestamp()
+                });
+                document.getElementById('chapter-comment-input').value = '';
+                rating.checked = false; // Seçili yıldızı temizle
+            });
+
+            const themeToggleBtn = document.getElementById('theme-toggle');
+            const body = document.body;
+
+            themeToggleBtn.addEventListener('click', () => {
+                if (body.classList.contains('light-mode')) {
+                    body.classList.remove('light-mode');
+                    body.classList.add('dark-mode');
+                    themeToggleBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6"><path d="M12 2.25a.75.75 0 01.75.75v2.25a.75.75 0 01-1.5 0V3a.75.75 0 01.75-.75zM7.5 12a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM18.75 12a.75.75 0 00-.75.75h-2.25a.75.75 0 000 1.5h2.25a.75.75 0 00.75-.75v-1.5a.75.75 0 00-.75-.75zM12 18.75a.75.75 0 01.75.75v2.25a.75.75 0 01-1.5 0v-2.25a.75.75 0 01.75-.75zM5.636 5.636a.75.75 0 001.06 0l1.591-1.59a.75.75 0 10-1.06-1.06l-1.59 1.591a.75.75 0 000 1.06zM18.364 5.636a.75.75 0 001.06 0l1.59-1.591a.75.75 0 00-1.06-1.06l-1.591 1.59a.75.75 0 000 1.06zM3.375 12a.75.75 0 00-.75.75v1.5a.75.75 0 001.5 0v-1.5a.75.75 0 00-.75-.75zM12 5.25a6.75 6.75 0 110 13.5 6.75 6.75 0 010-13.5zM2.25 12a.75.75 0 00-.75.75v1.5a.75.75 0 001.5 0v-1.5a.75.75 0 00-.75-.75zM5.636 18.364a.75.75 0 00-1.06 0l-1.591-1.59a.75.75 0 001.06-1.06l1.59 1.591a.75.75 0 000 1.06zM18.364 18.364a.75.75 0 001.06 0l1.59-1.591a.75.75 0 00-1.06-1.06l-1.591 1.59a.75.75 0 000 1.06zM12 12a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0v-1.5a.75.75 0 01.75-.75z" clip-rule="evenodd" /></svg>';
+                } else {
+                    body.classList.remove('dark-mode');
+                    body.classList.add('light-mode');
+                    themeToggleBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6"><path fill-rule="evenodd" d="M9.52 2.378a.75.75 0 01.424.821 5.25 5.25 0 005.748 5.748.75.75 0 01.821.424 6.75 6.75 0 01-6.99 9.389A6.75 6.75 0 012.378 9.52a.75.75 0 01.821-.424A5.25 5.25 0 009.52 2.378z" clip-rule="evenodd" /></svg>';
+                }
+            });
+        });
+
+        // Kitap içeriğini yükle ve yorumları göster
+        window.loadBookContent = (bookId) => {
+            window.currentBookId = bookId; // Şu anki kitabı kaydet
+            const content = document.getElementById(`content-${bookId}`);
+            document.getElementById('book-content-container').innerHTML = content.innerHTML;
+            window.loadChapterComments(bookId); // Bölüm yorumlarını yükle
+            document.getElementById('chapter-comments-section').style.display = 'block';
+        };
+    </script>
+    
+    <!-- Navbar -->
+    <nav class="bg-white shadow-lg fixed w-full z-50 transition-colors duration-300">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center">
+                <a href="#" onclick="showPage('home-page')" class="text-2xl font-bold text-gray-800 mr-8">VESPERA</a>
+                <div class="hidden md:flex space-x-6">
+                    <a href="#" onclick="showPage('home-page')" class="text-gray-600 hover:text-purple-600 transition duration-300">Ana Sayfa</a>
+                    <a href="#" onclick="showPage('books-page')" class="text-gray-600 hover:text-purple-600 transition duration-300">Kitaplar</a>
+                    <a href="#" onclick="showPage('contact-page')" class="text-gray-600 hover:text-purple-600 transition duration-300">İletişim</a>
+                    <a href="#" id="vespera-nav-link" onclick="showPage('vespera-page')" class="text-gray-600 hover:text-purple-600 transition duration-300 hidden">VESPERA</a>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-4">
+                <button id="theme-toggle" class="p-2 rounded-full text-gray-700 hover:bg-gray-200 transition-colors duration-300">
+                    <!-- Tema değiştirme ikonu -->
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6"><path fill-rule="evenodd" d="M9.52 2.378a.75.75 0 01.424.821 5.25 5.25 0 005.748 5.748.75.75 0 01.821.424 6.75 6.75 0 01-6.99 9.389A6.75 6.75 0 012.378 9.52a.75.75 0 01.821-.424A5.25 5.25 0 009.52 2.378z" clip-rule="evenodd" /></svg>
+                </button>
+                <div id="profile-info" class="flex items-center space-x-2 hidden">
+                    <div class="text-sm font-semibold text-gray-800" id="profile-name"></div>
+                    <img id="profile-pic" src="" alt="Profil Resmi" class="w-8 h-8 rounded-full cursor-pointer ring-2 ring-purple-500 ring-offset-2 ring-offset-white" onclick="openModal('profile-modal')">
+                </div>
+                <button id="login-btn" onclick="openModal('profile-modal')" class="px-4 py-2 bg-purple-600 text-white rounded-lg shadow-md hover:bg-purple-700 transition hidden">Giriş Yap</button>
+            </div>
+        </div>
+    </nav>
+    <main class="pt-20 container mx-auto px-4 sm:px-6 lg:px-8 pb-10">
+
+        <!-- Anasayfa -->
+        <section id="home-page" class="page-section">
+            <div class="flex flex-col md:flex-row items-center md:space-x-12 p-8 md:p-12 bg-white rounded-xl shadow-lg mt-8">
+                <div class="md:w-1/3 mb-6 md:mb-0">
+                    <img src="https://i.hizliresim.com/cauvhjv.jpg" alt="Yazar Vespera" class="w-full h-auto rounded-full shadow-lg border-4 border-purple-300">
+                </div>
+                <div class="md:w-2/3 text-center md:text-left">
+                    <h1 class="text-4xl sm:text-5xl font-extrabold text-purple-600 mb-4 animate-pulse">VESPERA</h1>
+                    <p class="text-xl text-gray-700 leading-relaxed">
+                        Hayal gücümün peşinden giden bir yazarım. Kelimelerin gücüne inanıyor, her bir hikayenin okurlara farklı dünyaların kapılarını açtığına inanıyorum. Yazmaya çocukluktan beri devam ediyorum ve her geçen gün bu büyülü yolculukta yeni şeyler keşfediyorum. Umarım yazılarım size de ilham verir ve kendi hayal dünyalarınızda kaybolmanızı sağlar.
+                    </p>
+                </div>
+            </div>
+            
+            <!-- Yorum Panosu -->
+            <div class="mt-12 bg-white rounded-xl shadow-lg p-8">
+                <h2 class="text-3xl font-bold text-gray-800 mb-6 border-b-2 border-purple-500 pb-2">Yazar Panosu</h2>
+                <div class="mb-6">
+                    <form id="comment-form" class="space-y-4">
+                        <textarea id="comment-input" rows="3" placeholder="Yazara bir yorum bırakın..." class="w-full p-3 rounded-lg border-2 border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 transition duration-300 resize-none"></textarea>
+                        <button type="submit" class="w-full py-3 bg-purple-600 text-white font-bold rounded-lg shadow-md hover:bg-purple-700 transition duration-300">Yorum Yap</button>
+                    </form>
+                </div>
+                <div id="comments-container" class="space-y-4">
+                    <!-- Yorumlar buraya dinamik olarak yüklenecek -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Kitaplar Sayfası -->
+        <section id="books-page" class="page-section hidden">
+            <div class="text-center p-8 bg-white rounded-xl shadow-lg">
+                <h1 class="text-4xl font-bold text-gray-800" id="book-title-header">Kitaplarım</h1>
+            </div>
+            <div id="books-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 mt-8">
+                <div class="book-card-container card bg-white rounded-xl shadow-lg p-6 flex flex-col items-center card-hover cursor-pointer transition transform hover:scale-105" onclick="showPage('book-details-page', 'zifiri')">
+                    <img src="https://i.hizliresim.com/l4vuzhc.png" alt="ZİFİRİ Kitap Kapağı" class="rounded-lg shadow-lg mb-4 book-card-image">
+                    <h3 class="text-2xl font-bold text-gray-800">ZİFİRİ</h3>
+                    <p class="text-gray-600 text-sm mt-2 text-center">Bir ejderhanın soyundan gelmek. Savaşçı ve büyücü bir prenses olmak. Ve aşkın için savaşmak.</p>
+                </div>
+                <div class="book-card-container card bg-white rounded-xl shadow-lg p-6 flex flex-col items-center card-hover cursor-pointer transition transform hover:scale-105" onclick="showPage('not-written-page')">
+                    <img src="https://i.hizliresim.com/eoo8lnh.png" alt="DÖNENCE Kitap Kapağı" class="rounded-lg shadow-lg mb-4 book-card-image">
+                    <h3 class="text-2xl font-bold text-gray-800">DÖNENCE</h3>
+                    <p class="text-gray-600 text-sm mt-2 text-center">Hayat, bazen bir dönence gibidir. Nerede başladığını, nerede biteceğini bilemediğin bir yolculuk.</p>
+                </div>
+                <div class="book-card-container card bg-white rounded-xl shadow-lg p-6 flex flex-col items-center card-hover cursor-pointer transition transform hover:scale-105" onclick="showPage('not-written-page')">
+                    <img src="https://i.hizliresim.com/3ijbwu9.png" alt="ACIBAL Kitap Kapağı" class="rounded-lg shadow-lg mb-4 book-card-image">
+                    <h3 class="text-2xl font-bold text-gray-800">ACIBAL</h3>
+                    <p class="text-gray-600 text-sm mt-2 text-center">Bazen en tatlı anılar, en acı gerçekleri saklar. "ACIBAL," geçmişin peşini bırakmayan bir kadının hikayesidir.</p>
+                </div>
+                <div class="book-card-container card bg-white rounded-xl shadow-lg p-6 flex flex-col items-center card-hover cursor-pointer transition transform hover:scale-105" onclick="showPage('not-written-page')">
+                    <img src="https://i.hizliresim.com/gxf02wx.png" alt="SAYE Kitap Kapağı" class="rounded-lg shadow-lg mb-4 book-card-image">
+                    <h3 class="text-2xl font-bold text-gray-800">SAYE</h3>
+                    <p class="text-600 text-sm mt-2 text-center">Her gölge, bir ışığın kanıtıdır. "SAYE," hayallerinin peşinden giden genç bir ressamın hikayesidir.</p>
+                </div>
+            </div>
+            <div id="book-content-container" class="mt-8 hidden"></div>
+        </section>
+
+        <!-- Zifiri İlk Bölüm -->
+        <section id="book-details-page" class="page-section hidden">
+            <div class="bg-white rounded-xl shadow-lg p-8">
+                <h1 class="text-4xl font-bold text-gray-800 mb-6 border-b-2 border-purple-500 pb-2">ZİFİRİ: İlk Bölüm</h1>
+                <div id="content-zifiri" class="prose max-w-none text-gray-700">
+                    <p>Bir ejderhanın soyundan gelmek. Savaşçı ve büyücü bir prenses olmak. Ve aşkın için savaşmak.</p>
+                    <p class="mt-4">𓆩♡𓆪 | 1</p>
+                    <p>Adımlarım, taş döşemelerde yankılanmayacak kadar hafifti. Gürültüden hazzetmezdim; varlığımı fısıltılarda saklamak, meraklı gözlerden ve anlamsız ilgiden kaçınmak en büyük arzumdu.</p>
+                    <p>Taht salonuna adım attığımda, Arcanum Hanedanı'nın yediden yetmişe tüm üyeleri, göz alıcı bir ihtişamla sıralanmıştı. Her biri, sanki sihirle dokunmuş gibi zarif kumaşlar ve üzerlerinde parıldayan, bin yıllık sırları fısıldayan mücevherlerle bezenmişti. Burunlarından kıl aldırmayan, kibirli bakışları üzerimde geziniyordu.</p>
+                    <p>Onların yanında giydiğim, aslında bir prensese yakışır, özenle seçilmiş ve gücümü simgeleyen işlemelerle süslü olsa da, sadeliğin bir timsali gibi duruyordu. Öyle ki, bu topraklara hiçbir bağı olmayan, soyluluk zerresi taşımayan bazıları bile benden çok daha gösterişliydi ve küstahça bakışlarını üzerime dikmekten çekinmiyorlardı.</p>
+                    <p>İçlerindeki o şişirilmiş egoyu tahrik etmek için, salona girer girmez adımlarımı yavaşlattım. Gözlerim, onların meydan okuyan bakışlarına meydan okurcasına kilitlendi. Bu gösterişli topluluğun arasında ilerleyerek, salonun ortasında durdum ve İmparator Babama doğru saygıyla eğildim.</p>
+                    <p>"Ulu İmparatorumuzun, İmparatorluğumuzun kudretli Güneşi'ne en derin saygılarımı sunuyorum."</p>
+                    <p>Ardından, Kraliçe Annemin ve sevgili kardeşim Kaelen'in yanına doğru yürüdüm.</p>
+                    <p>"Geç kaldın Maeve," dedi annem, kızgın ve uyarıcı sesiyle. Bir yandan da gülümsüyor, dışarıya karşı maskesini düşüremiyordu. Sessiz kaldım. Konuşacak enerjiyi kendimde şu anda bulamıyordum.</p>
+                    <p>"Sana diyorum Maeve! Biraz annene kulak ver," dedi.</p>
+                    <p>Maskesini bir anlığına indirmiş, sinirli suratını seyircilerine takdim etmişti ama hemen düzelterek seyircilerin önünde sergilediği tiyatroya devam etti.</p>
+                    <p>Umursamıyordum; istediği kadar konuşabilirdi.</p>
+                    <p>"Kraliçem, sevgili kardeşimi birazcık rahat bırakıp bizi izleyen kadim dostlarımıza ilgi gösterir misiniz? Yoksa buradan çıktığımızda hemen başımıza toplanıp neden sinirlendiğinizi soracaklar."</p>
+                    <p>Annem ses etmeden önüne döndü. Ben de bu sırada etrafımı daha dikkatle inceledim. Hepsinin niyeti belliydi. Bir insanın niyeti gözünden, yüreğinden bellidir.</p>
+                    <p>"İmparatorluğun değerli aile üyeleri, hepinizi İmparatorluğun güneşi olarak selamlıyorum. Kızım prenses Maeve geldiğine göre, toplantıya başlayabiliriz."</p>
+                    <p>İmparator tahtında otururken, bizler ayaktaydık.</p>
+                </div>
+                
+                <!-- Bölüm Sonu Yorum ve Oy Bölümü -->
+                <div id="chapter-comments-section" class="mt-12 bg-gray-100 rounded-xl shadow-lg p-8 hidden">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6 border-b-2 border-purple-500 pb-2">Bölümü Değerlendir</h3>
+                    <div class="mb-6">
+                        <form id="chapter-comment-form" class="space-y-4">
+                            <div class="flex items-center space-x-2">
+                                <label class="text-lg font-medium text-gray-700">Bu bölümü oyla:</label>
+                                <div class="flex items-center">
+                                    <input type="radio" id="star1" name="rating" value="1" class="hidden">
+                                    <label for="star1" class="cursor-pointer">
+                                        <svg class="w-8 h-8 text-purple-500 fill-current" viewBox="0 0 20 20"><path d="M10 15.27L16.18 19l-1.64-7.03L20 7.24l-7.19-.61L10 0 7.19 6.63 0 7.24l5.46 4.73L3.82 19z"/></svg>
+                                    </label>
+                                    <input type="radio" id="star2" name="rating" value="2" class="hidden">
+                                    <label for="star2" class="cursor-pointer">
+                                        <svg class="w-8 h-8 text-purple-500 fill-current" viewBox="0 0 20 20"><path d="M10 15.27L16.18 19l-1.64-7.03L20 7.24l-7.19-.61L10 0 7.19 6.63 0 7.24l5.46 4.73L3.82 19z"/></svg>
+                                    </label>
+                                    <input type="radio" id="star3" name="rating" value="3" class="hidden">
+                                    <label for="star3" class="cursor-pointer">
+                                        <svg class="w-8 h-8 text-purple-500 fill-current" viewBox="0 0 20 20"><path d="M10 15.27L16.18 19l-1.64-7.03L20 7.24l-7.19-.61L10 0 7.19 6.63 0 7.24l5.46 4.73L3.82 19z"/></svg>
+                                    </label>
+                                    <input type="radio" id="star4" name="rating" value="4" class="hidden">
+                                    <label for="star4" class="cursor-pointer">
+                                        <svg class="w-8 h-8 text-purple-500 fill-current" viewBox="0 0 20 20"><path d="M10 15.27L16.18 19l-1.64-7.03L20 7.24l-7.19-.61L10 0 7.19 6.63 0 7.24l5.46 4.73L3.82 19z"/></svg>
+                                    </label>
+                                    <input type="radio" id="star5" name="rating" value="5" class="hidden">
+                                    <label for="star5" class="cursor-pointer">
+                                        <svg class="w-8 h-8 text-purple-500 fill-current" viewBox="0 0 20 20"><path d="M10 15.27L16.18 19l-1.64-7.03L20 7.24l-7.19-.61L10 0 7.19 6.63 0 7.24l5.46 4.73L3.82 19z"/></svg>
+                                    </label>
+                                </div>
+                            </div>
+                            <textarea id="chapter-comment-input" rows="3" placeholder="Bu bölüm hakkında yorum yapın..." class="w-full p-3 rounded-lg border-2 border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 transition duration-300 resize-none"></textarea>
+                            <button type="submit" class="w-full py-3 bg-purple-600 text-white font-bold rounded-lg shadow-md hover:bg-purple-700 transition duration-300">Yorumu Gönder</button>
+                        </form>
+                    </div>
+                    <div id="chapter-comments-container" class="space-y-4">
+                        <!-- Bölüm yorumları buraya dinamik olarak yüklenecek -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- İletişim Sayfası -->
+        <section id="contact-page" class="page-section hidden">
+            <div class="bg-white rounded-xl shadow-lg p-8">
+                <h1 class="text-4xl font-bold text-gray-800 mb-6 border-b-2 border-purple-500 pb-2">İletişim</h1>
+                <div class="space-y-4 text-lg text-gray-700">
+                    <p>Bana aşağıdaki adreslerden ulaşabilirsiniz:</p>
+                    <ul class="list-disc list-inside space-y-2">
+                        <li>Instagram: <a href="https://www.instagram.com/ulgerkk" target="_blank" class="text-purple-600 hover:underline">@ulgerkk</a></li>
+                        <li>TikTok: <a href="https://www.tiktok.com/@ulgerkk" target="_blank" class="text-purple-600 hover:underline">@ulgerkk</a></li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- Henüz Yazılmadı Sayfası -->
+        <section id="not-written-page" class="page-section hidden">
+            <div class="bg-white rounded-xl shadow-lg p-8 text-center">
+                <h1 class="text-4xl font-bold text-gray-800 mb-4">Henüz Yazılmadı</h1>
+                <p class="text-lg text-gray-700">Bu kitabın içeriği henüz hazır değil. Lütfen daha sonra tekrar kontrol edin!</p>
+            </div>
+        </section>
+        
+        <!-- Vespera Özel Alanı -->
+        <section id="vespera-page" class="page-section hidden">
+            <div class="bg-white rounded-xl shadow-lg p-8 mb-8">
+                <h2 class="text-3xl font-bold text-gray-800 mb-6 border-b-2 border-purple-500 pb-2">VESPERA</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <a href="#" onclick="showPage('announcements-page')" class="group flex flex-col items-center justify-center p-6 rounded-xl shadow-md bg-gray-100 hover:bg-gray-200 transition duration-300">
+                        <svg class="w-16 h-16 text-purple-600 group-hover:text-purple-700 transition duration-300" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/><path d="M12 11h-1.5a1.5 1.5 0 000 3H12v2.5a.5.5 0 01-1 0V15h1.5a1.5 1.5 0 000-3H12v-1.5a.5.5 0 011 0V11h-1.5a1.5 1.5 0 000-3H12V7.5a.5.5 0 011 0V6h1.5a1.5 1.5 0 000-3H12V1.5a.5.5 0 01.5 0z"/></svg>
+                        <span class="mt-4 text-xl font-semibold text-gray-800 group-hover:text-gray-900 transition duration-300">Duyurular</span>
+                    </a>
+                    <a href="#" onclick="showPage('groups-page')" class="group flex flex-col items-center justify-center p-6 rounded-xl shadow-md bg-gray-100 hover:bg-gray-200 transition duration-300">
+                        <svg class="w-16 h-16 text-purple-600 group-hover:text-purple-700 transition duration-300" fill="currentColor" viewBox="0 0 24 24"><path d="M21 15v-2a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1h2a1 1 0 001-1zM17 9v6a1 1 0 01-1 1h-2a1 1 0 01-1-1V9a1 1 0 011-1h2a1 1 0 011 1zM13 15V9a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1zM9 15V9a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1zM5 15V9a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1H6a1 1 0 01-1-1z"/></svg>
+                        <span class="mt-4 text-xl font-semibold text-gray-800 group-hover:text-gray-900 transition duration-300">Kitap Grupları</span>
+                    </a>
+                    <a href="#" onclick="showPage('yb-page')" class="group flex flex-col items-center justify-center p-6 rounded-xl shadow-md bg-gray-100 hover:bg-gray-200 transition duration-300">
+                        <svg class="w-16 h-16 text-purple-600 group-hover:text-purple-700 transition duration-300" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zM5 5h14v14H5V5zm6 4h4v2h-4v4h-2v-4H7V9h4v-2h2v2zm6 2h-4v2h4z"/></svg>
+                        <span class="mt-4 text-xl font-semibold text-gray-800 group-hover:text-gray-900 transition duration-300">Yeni Bölüm</span>
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <!-- Duyurular Sayfası -->
+        <section id="announcements-page" class="page-section hidden">
+            <div class="bg-white rounded-xl shadow-lg p-8">
+                <h2 class="text-3xl font-bold text-gray-800 mb-6 border-b-2 border-purple-500 pb-2">Yazar Duyuruları</h2>
+                <!-- Sadece yazarın göreceği form -->
+                <div id="announcement-form-container" class="mb-6">
+                    <form id="announcement-form" class="space-y-4">
+                        <textarea id="announcement-input" rows="3" placeholder="Yazar olarak duyuru yazın..." class="w-full p-3 rounded-lg border-2 border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 transition duration-300 resize-none"></textarea>
+                        <button type="submit" class="w-full py-3 bg-purple-600 text-white font-bold rounded-lg shadow-md hover:bg-purple-700 transition duration-300">Duyuru Yap</button>
+                    </form>
+                </div>
+                <div id="announcements-container" class="space-y-4">
+                    <!-- Duyurular buraya dinamik olarak yüklenecek -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Kitap Grupları Sayfası -->
+        <section id="groups-page" class="page-section hidden">
+            <div class="bg-white rounded-xl shadow-lg p-8">
+                <h2 class="text-3xl font-bold text-gray-800 mb-6 border-b-2 border-purple-500 pb-2">Kitap Sohbet Grupları</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <a href="#" onclick="showPage('chat-page'); loadChatMessages('zifiri')" class="group flex flex-col items-center justify-center p-6 rounded-xl shadow-md bg-gray-100 hover:bg-gray-200 transition duration-300">
+                        <img src="https://i.hizliresim.com/l4vuzhc.png" alt="Zifiri" class="w-20 h-20 rounded-full object-cover mb-4 ring-2 ring-purple-500">
+                        <span class="text-xl font-semibold text-gray-800">ZİFİRİ</span>
+                    </a>
+                    <a href="#" onclick="showPage('chat-page'); loadChatMessages('donence')" class="group flex flex-col items-center justify-center p-6 rounded-xl shadow-md bg-gray-100 hover:bg-gray-200 transition duration-300">
+                        <img src="https://i.hizliresim.com/eoo8lnh.png" alt="Dönence" class="w-20 h-20 rounded-full object-cover mb-4 ring-2 ring-purple-500">
+                        <span class="text-xl font-semibold text-gray-800">DÖNENCE</span>
+                    </a>
+                    <a href="#" onclick="showPage('chat-page'); loadChatMessages('acibal')" class="group flex flex-col items-center justify-center p-6 rounded-xl shadow-md bg-gray-100 hover:bg-gray-200 transition duration-300">
+                        <img src="https://i.hizliresim.com/3ijbwu9.png" alt="Acıbal" class="w-20 h-20 rounded-full object-cover mb-4 ring-2 ring-purple-500">
+                        <span class="text-xl font-semibold text-gray-800">ACIBAL</span>
+                    </a>
+                    <a href="#" onclick="showPage('chat-page'); loadChatMessages('saye')" class="group flex flex-col items-center justify-center p-6 rounded-xl shadow-md bg-gray-100 hover:bg-gray-200 transition duration-300">
+                        <img src="https://i.hizliresim.com/gxf02wx.png" alt="Saye" class="w-20 h-20 rounded-full object-cover mb-4 ring-2 ring-purple-500">
+                        <span class="text-xl font-semibold text-gray-800">SAYE</span>
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <!-- Sohbet Sayfası -->
+        <section id="chat-page" class="page-section hidden">
+            <div class="bg-white rounded-xl shadow-lg p-8">
+                <h2 id="chat-title" class="text-3xl font-bold text-gray-800 mb-6 border-b-2 border-purple-500 pb-2">Sohbet Grubu</h2>
+                <div id="chat-messages-container" class="h-96 overflow-y-auto p-4 rounded-lg bg-gray-50 border border-gray-200 flex flex-col space-y-4 mb-4">
+                    <!-- Sohbet mesajları buraya gelecek -->
+                </div>
+                <form id="chat-form" class="flex space-x-2">
+                    <input id="chat-input" type="text" placeholder="Mesajınızı buraya yazın..." class="flex-1 p-3 rounded-lg border-2 border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 transition duration-300">
+                    <button type="submit" class="px-6 py-3 bg-purple-600 text-white font-bold rounded-lg shadow-md hover:bg-purple-700 transition duration-300">Gönder</button>
+                </form>
+            </div>
+        </section>
+
+        <!-- Yeni Bölüm Planı Sayfası -->
+        <section id="yb-page" class="page-section hidden">
+            <div class="bg-white rounded-xl shadow-lg p-8">
+                <h2 class="text-3xl font-bold text-gray-800 mb-6 border-b-2 border-purple-500 pb-2">Yeni Bölüm Planı</h2>
+                <!-- Yazar için plan ekleme formu -->
+                <div id="yb-form-container" class="mb-6">
+                    <form id="yb-form" class="space-y-4">
+                        <select id="yb-book-select" class="w-full p-3 rounded-lg border-2 border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 transition duration-300">
+                            <option value="">Kitap Seçin</option>
+                            <option value="zifiri">ZİFİRİ</option>
+                            <option value="donence">DÖNENCE</option>
+                            <option value="acibal">ACIBAL</option>
+                            <option value="saye">SAYE</option>
+                        </select>
+                        <textarea id="yb-input" rows="3" placeholder="Yeni bölüm planını paylaşın..." class="w-full p-3 rounded-lg border-2 border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 transition duration-300 resize-none"></textarea>
+                        <button type="submit" class="w-full py-3 bg-purple-600 text-white font-bold rounded-lg shadow-md hover:bg-purple-700 transition duration-300">Paylaş</button>
+                    </form>
+                </div>
+                <div id="chapter-plans-container" class="space-y-4">
+                    <!-- Planlar buraya dinamik olarak yüklenecek -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Profil Modalı -->
+        <div id="profile-modal" class="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm z-50 justify-center items-center hidden">
+            <div class="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full m-4 relative">
+                <button onclick="closeModal('profile-modal')" class="absolute top-4 right-4 text-gray-500 hover:text-gray-800 transition">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+                <h3 class="text-2xl font-bold text-gray-800 mb-6 text-center">Profil Ayarları</h3>
+                <form id="profile-form" class="space-y-4">
+                    <div>
+                        <label for="profile-name-input" class="block text-sm font-medium text-gray-700">Kullanıcı Adı</label>
+                        <input type="text" id="profile-name-input" placeholder="Adınızı girin" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500">
+                    </div>
+                    <div>
+                        <label for="profile-pic-input" class="block text-sm font-medium text-gray-700">Profil Resmi URL'si</label>
+                        <input type="url" id="profile-pic-input" placeholder="Resim URL'si yapıştırın" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500">
+                    </div>
+                    <button type="submit" class="w-full py-3 bg-purple-600 text-white font-bold rounded-lg shadow-md hover:bg-purple-700 transition duration-300">Kaydet</button>
+                </form>
+            </div>
+        </div>
+
+    </main>
+    <script>
+        // Sayfa yüklendiğinde Firestore verilerini yükle
+        document.addEventListener('DOMContentLoaded', () => {
+            window.loadComments();
+            window.loadAnnouncements();
+            // Varsayılan olarak ZİFİRİ için YB planlarını yükle
+            window.loadChapterPlans('zifiri');
+            // Kullanıcı yazar ise duyuru ve YB formunu göster
+            const checkAuthorStatus = setInterval(() => {
+                if (window.auth.currentUser) {
+                    if (window.auth.currentUser.uid === window.AUTHOR_UID) {
+                        document.getElementById('announcement-form-container').style.display = 'block';
+                        document.getElementById('yb-form-container').style.display = 'block';
+                    } else {
+                        document.getElementById('announcement-form-container').style.display = 'none';
+                        document.getElementById('yb-form-container').style.display = 'none';
+                    }
+                    clearInterval(checkAuthorStatus);
+                }
+            }, 500);
+        });
+    </script>
+</body>
+</html>
